@@ -1,9 +1,7 @@
-# syntax=docker/dockerfile:1-labs
-
 # Build argument for custom certificates directory
 ARG CUSTOM_CERT_DIR="certs"
 
-FROM node:20-alpine3.22 AS node_base
+FROM docker.m.daocloud.io/library/node:20-alpine3.22 AS node_base
 
 FROM node_base AS node_deps
 WORKDIR /app
@@ -22,35 +20,33 @@ ENV NODE_OPTIONS="--max-old-space-size=4096"
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN NODE_ENV=production npm run build
 
-FROM python:3.11-slim AS py_deps
+FROM docker.m.daocloud.io/library/python:3.11-slim AS py_deps
 WORKDIR /api
 COPY api/pyproject.toml .
 COPY api/poetry.lock .
-RUN python -m pip install poetry==2.0.1 --no-cache-dir && \
+RUN python -m pip install poetry==2.0.1 --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple && \
     poetry config virtualenvs.create true --local && \
     poetry config virtualenvs.in-project true --local && \
     poetry config virtualenvs.options.always-copy --local true && \
-    POETRY_MAX_WORKERS=10 poetry install --no-interaction --no-ansi --only main && \
+    PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple POETRY_MAX_WORKERS=10 poetry install --no-interaction --no-ansi --only main && \
     poetry cache clear --all .
 
 # Use Python 3.11 as final image
-FROM python:3.11-slim
+FROM docker.m.daocloud.io/library/python:3.11-slim
 
 # Set working directory
 WORKDIR /app
 
-# Install Node.js and npm
-RUN apt-get update && apt-get install -y \
-    curl \
-    gnupg \
-    git \
-    ca-certificates \
-    && mkdir -p /etc/apt/keyrings \
-    && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
-    && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list \
+# Install Node.js from binary tarball using npmmirror (China fast)
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    ca-certificates curl xz-utils git \
+    && sed -i 's|http://deb.debian.org|http://mirrors.ustc.edu.cn|g; s|https://deb.debian.org|http://mirrors.ustc.edu.cn|g' \
+       /etc/apt/sources.list.d/debian.sources /etc/apt/sources.list 2>/dev/null || true \
     && apt-get update \
-    && apt-get install -y nodejs \
-    && apt-get clean \
+    && curl -fsSL https://npmmirror.com/mirrors/node/v20.20.2/node-v20.20.2-linux-x64.tar.xz \
+       -o /tmp/node.tar.xz \
+    && tar xf /tmp/node.tar.xz -C /usr/local --strip-components=1 \
+    && rm /tmp/node.tar.xz \
     && rm -rf /var/lib/apt/lists/*
 
 # Update certificates if custom ones were provided and copied successfully

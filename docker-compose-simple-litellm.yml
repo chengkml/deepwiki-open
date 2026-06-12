@@ -1,0 +1,64 @@
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: litellm
+      POSTGRES_USER: litellm
+      POSTGRES_PASSWORD: litellm_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - deepwiki_litellm_db:/var/lib/postgresql/data
+
+  litellm:
+    image: ghcr.io/berriai/litellm:v1.83.10-stable
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./litellm-config.yml:/app/config.yaml
+    environment:
+      - LITELLM_MASTER_KEY=sk-1234
+      - CODEX_BASE_URL=https://api.funai.vip
+      - CODEX_API_KEY=sk-7ee34024b546706cc6780453ed9f50911781cc6c43c51a134f9c58fc9b0ea87a
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - db
+
+  deepwiki:
+    image: deepwiki-open-deepwiki:latest
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+      - "3000:3000"
+    environment:
+      - PORT=8001
+      - NODE_ENV=production
+      - SERVER_BASE_URL=http://localhost:8001
+      - LOG_LEVEL=INFO
+      - LOG_FILE_PATH=api/logs/application.log
+      - LITELLM_BASE_URL=http://litellm:4000
+      - LITELLM_API_KEY=sk-1234
+      - CODEX_BASE_URL=https://api.funai.vip
+      - CODEX_API_KEY=sk-7ee34024b546706cc6780453ed9f50911781cc6c43c51a134f9c58fc9b0ea87a
+      - OPENAI_API_KEY=sk-7ee34024b546706cc6780453ed9f50911781cc6c43c51a134f9c58fc9b0ea87a
+      - GOOGLE_API_KEY=placeholder
+    volumes:
+      - ~/.adalflow:/root/.adalflow
+      - ./api/logs:/app/api/logs
+    mem_limit: 6g
+    mem_reservation: 2g
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    depends_on:
+      - litellm
+
+volumes:
+  deepwiki_litellm_db:
