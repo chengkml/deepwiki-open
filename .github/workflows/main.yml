@@ -135,8 +135,6 @@ jobs:
 
             # 创建生产环境的 docker-compose.yml
             cat > docker-compose.yml <<'COMPOSE_EOF'
-            version: '3.8'
-
             services:
               deepwiki:
                 image: ${DEEPWIKI_IMAGE}
@@ -144,7 +142,7 @@ jobs:
                 restart: unless-stopped
                 ports:
                   - "${PORT:-8001}:${PORT:-8001}"
-                  - "3000:3000"
+                  - "${FRONTEND_PORT:-3001}:3000"
                 environment:
                   - PORT=${PORT:-8001}
                   - NODE_ENV=production
@@ -178,6 +176,7 @@ jobs:
             # DeepWiki 环境变量
             # 请根据实际需求配置以下变量
             PORT=8001
+            FRONTEND_PORT=3001
             LOG_LEVEL=INFO
             OPENAI_API_KEY=
             GOOGLE_API_KEY=
