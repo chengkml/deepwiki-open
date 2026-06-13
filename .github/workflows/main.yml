@@ -106,20 +106,6 @@ jobs:
             DEPLOY_DIR="${DEPLOY_PATH:-/opt/deepwiki}"
             mkdir -p "${DEPLOY_DIR}"
 
-      - name: 同步部署配置到服务器
-        uses: appleboy/scp-action@v1.0.0
-        with:
-          host: ${{ secrets.SERVER_HOST || vars.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER || vars.SERVER_USER }}
-          port: ${{ secrets.SERVER_PORT || vars.SERVER_PORT || 22 }}
-          key: ${{ secrets.SERVER_SSH_KEY }}
-          password: ${{ secrets.SERVER_PASSWORD }}
-          timeout: 120s
-          command_timeout: 10m
-          source: "docker-compose.yml,.dockerignore"
-          target: ${{ secrets.DEPLOY_PATH || vars.DEPLOY_PATH || '/opt/deepwiki' }}
-          overwrite: true
-
       - name: 通过 SSH 拉取并更新容器
         uses: appleboy/ssh-action@v1.2.0
         env:
@@ -144,9 +130,62 @@ jobs:
             export COMPOSE_HTTP_TIMEOUT="${COMPOSE_HTTP_TIMEOUT:-600}"
 
             DEPLOY_DIR="${DEPLOY_PATH:-/opt/deepwiki}"
+            mkdir -p "${DEPLOY_DIR}"
             cd "${DEPLOY_DIR}"
-            [ -f docker-compose.yml ] || { echo "[error] docker-compose.yml 不存在"; exit 1; }
 
+            # 创建生产环境的 docker-compose.yml
+            cat > docker-compose.yml <<'COMPOSE_EOF'
+            version: '3.8'
+
+            services:
+              deepwiki:
+                image: ${DEEPWIKI_IMAGE}
+                container_name: deepwiki
+                restart: unless-stopped
+                ports:
+                  - "${PORT:-8001}:${PORT:-8001}"
+                  - "3000:3000"
+                environment:
+                  - PORT=${PORT:-8001}
+                  - NODE_ENV=production
+                  - SERVER_BASE_URL=http://localhost:${PORT:-8001}
+                  - LOG_LEVEL=${LOG_LEVEL:-INFO}
+                  - LOG_FILE_PATH=${LOG_FILE_PATH:-api/logs/application.log}
+                  - OPENAI_API_KEY=${OPENAI_API_KEY}
+                  - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+                volumes:
+                  - deepwiki_adalflow:/root/.adalflow
+                  - deepwiki_logs:/app/api/logs
+                  - deepwiki_data:/app/data
+                mem_limit: 6g
+                mem_reservation: 2g
+                healthcheck:
+                  test: ["CMD", "curl", "-f", "http://localhost:${PORT:-8001}/health"]
+                  interval: 60s
+                  timeout: 10s
+                  retries: 3
+                  start_period: 30s
+
+            volumes:
+              deepwiki_adalflow:
+              deepwiki_logs:
+              deepwiki_data:
+            COMPOSE_EOF
+
+            # 创建 .env 文件（如果不存在）
+            if [ ! -f .env ]; then
+              cat > .env <<'ENV_EOF'
+            # DeepWiki 环境变量
+            # 请根据实际需求配置以下变量
+            PORT=8001
+            LOG_LEVEL=INFO
+            OPENAI_API_KEY=
+            GOOGLE_API_KEY=
+            ENV_EOF
+              echo "[info] 已创建默认 .env 文件，请根据需要配置环境变量"
+            fi
+
+            # 创建镜像环境变量文件
             cat > .images.env <<ENV
             DEEPWIKI_IMAGE=${DEEPWIKI_IMAGE}:${IMAGE_TAG}
             ENV
@@ -159,7 +198,7 @@ jobs:
             fi
 
             compose_run() {
-              ${COMPOSE_CMD} --env-file .images.env -f docker-compose.yml "$@"
+              ${COMPOSE_CMD} --env-file .env --env-file .images.env -f docker-compose.yml "$@"
             }
 
             pull_with_retry() {
